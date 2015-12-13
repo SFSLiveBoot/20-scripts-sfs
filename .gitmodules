@@ -1,0 +1,3 @@
+[submodule "opt/LiveBootUtils"]
+	path = opt/LiveBootUtils
+	url = https://github.com/korc/LiveBootUtils.git

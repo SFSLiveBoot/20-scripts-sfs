@@ -1,0 +1,16 @@
+#!/bin/sh
+
+case "$1" in
+  deconfig)
+    for ip in $(ip -4 addr show dev $interface | grep -o 'inet [^[:space:]]*' | cut -f2 -d" ");do
+      ip addr del $ip dev $interface
+    done
+  ;;
+  bound)
+    ip addr add $ip/$subnet dev $interface
+    test -z "$router" || ip route add default via $router
+    test -z "$dns" || echo "$dns" | tr ' ' '\n' | sed -e 's/^/nameserver /' >/etc/resolv.conf
+    test -z "$domain" || echo "domain $domain" >>/etc/resolv.conf
+  ;;
+  *) echo "$0[$$]: action $1 not handled" >&2;;
+esac
