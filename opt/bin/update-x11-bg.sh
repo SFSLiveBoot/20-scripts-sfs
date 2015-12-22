@@ -86,7 +86,7 @@ if test "monitor" = "$1";then
   test ! -e "$pidfile" || test ! -d "/proc/$(cat "$pidfile")" || { echo "Already running, not starting monitor" >&2; exit 1; }
   echo "$$" >"$pidfile"
   while true; do
-    ip monitor | head -1 >/dev/null
+    ip -4 monitor addr | head -1 >/dev/null
     sleep 1
     update_bg
   done
