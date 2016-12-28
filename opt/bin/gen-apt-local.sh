@@ -30,6 +30,7 @@ Dir {
 };
 Acquire::Languages "en";
 ${http_proxy:+Acquire::HTTP::Proxy $dq$http_proxy$dq;}
+${cache_lists:+APT::Get::List-Cleanup false;}
 EOF
 
  
