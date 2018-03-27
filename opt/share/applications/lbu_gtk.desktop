@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=LiveBootUtils module manager
+Exec=/opt/LiveBootUtils/lbu_gtk.py
+Icon=package-x-generic
+Type=Application
+Categories=PackageManager;GTK;System;Settings;
