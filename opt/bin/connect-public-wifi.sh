@@ -20,11 +20,15 @@ while test -z "$ssid";do
   ssid="$(prompt "SSID (enter for rescan)")"
 done
 : "${cname:=$(prompt "Connection name" "$ssid")}"
-if nmcli -t -f connection.type connection show "$cname";then op="modify"; else op="add"; fi
+if nmcli -t -f connection.type connection show "$cname";then op="modify"; else op="add type wifi con-name"; fi
 echo "Signal Freq      BSSID              Security"
-nmcli -m multiline -t -f ssid,signal,freq,bssid,security device wifi list | grep -A5 -Fx "SSID:$ssid" | grep -e SIGNAL -e FREQ -e BSSID -e SECURITY | cut -f2- -d: | xargs -d'\n' printf " %d    %s  %s  %s\n" | sort -n
+LANG=C.UTF-8 nmcli -m multiline -t -f ssid,signal,freq,bssid,security device wifi list | grep -A5 -Fx "SSID:$ssid" | grep -e SIGNAL -e FREQ -e BSSID -e SECURITY | cut -f2- -d: | xargs -d'\n' printf " %d    %s  %s  %s\n" | sort -n
 : "${bssid:=$(prompt "BSSID")}"
-test -z "$bssid" || : "${security:=$(nmcli -m multiline -t -f bssid,security device wifi list | grep -A1 -Fx "BSSID:$bssid" | grep ^SECURITY: | sort -u | cut -f2 -d:)}"
+if test -z "$bssid";then
+  : "${security:=$(LANG=C.UTF-8 nmcli -m multiline -t -f ssid,security device wifi list | grep -A1 -Fx "SSID:$ssid" | grep ^SECURITY: | sort -u | cut -f2 -d:)}"
+else
+  : "${security:=$(LANG=C.UTF-8 nmcli -m multiline -t -f bssid,security device wifi list | grep -A1 -Fx "BSSID:$bssid" | grep ^SECURITY: | sort -u | cut -f2 -d:)}"
+fi
 case " $security " in
   *" WPA1 "*|*" WPA2 "*)
   : "${key_mgmt:=wpa-psk}"
@@ -34,9 +38,7 @@ case " $security " in
   *) echo "WARNING: Unhandled security method: '$security'" >&2 ;;
 esac
 test -n "$never_default" || case "$(prompt "Use as default route? [Y/n]")" in Y*|y*|"") ;; *) never_default=1;; esac
-run nmcli connection $op \
-  type wifi \
-  con-name "$cname" \
+run nmcli connection $op "$cname" \
   cloned-mac random \
   ssid "$ssid" \
   ifname "*" \
@@ -50,3 +52,17 @@ run nmcli connection up "$cname"
 mac="$(run nmcli -t -f GENERAL.HWADDR device show "$iface" | cut -f2- -d:)"
 echo "Fixating parameters (mac=$mac)"
 run nmcli connection modify "$cname" cloned-mac "$mac"
+
+test -z "$never_default" || {
+  gw="$(run nmcli -t -f DHCP4.OPTION connection show "$cname" | sed -n '/:routers = /{s/.* = //;p;q}')"
+  run grep -hv '^127\.' /etc/hosts "$HOME/.config/hosts" | grep '^[0-9]' || true
+  while true; do
+    echo -n "Destination to route via $gw: "
+    read dest || true
+    test -n "$dest" || break
+    if run sudo ip route add "$dest" via "$gw";then
+      add_routes="${add_routes:+$add_routes,}$dest $gw"
+    fi
+  done
+  test -z "$add_routes" || run nmcli connection modify "$cname" ipv4.routes "$add_routes"
+}
