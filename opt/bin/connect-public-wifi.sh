@@ -46,7 +46,8 @@ run nmcli connection $op "$cname" \
   autoconnect no \
   ${bssid:+wifi.bssid "$bssid"} \
   ${never_default:+ipv4.never-default yes ipv4.ignore-auto-dns yes ipv6.never-default yes ipv6.ignore-auto-dns yes} \
-  ${key_mgmt:+wifi-sec.key-mgmt $key_mgmt} ${wpa_psk:+wifi-sec.psk "$wpa_psk"}
+  ${key_mgmt:+wifi-sec.key-mgmt $key_mgmt} ${wpa_psk:+wifi-sec.psk "$wpa_psk"} \
+  ${rt_table:+ipv4.route-table $rt_table}
 run nmcli connection up "$cname"
 : "${iface:=$(choose1 "$(run nmcli -t -f GENERAL.DEVICES connection show "$cname" | cut -f2- -d:)" "WiFi interface")}"
 mac="$(run nmcli -t -f GENERAL.HWADDR device show "$iface" | cut -f2- -d:)"
