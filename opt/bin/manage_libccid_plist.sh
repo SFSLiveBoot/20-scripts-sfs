@@ -3,7 +3,7 @@
 : ${plist:=/etc/libccid_Info.plist}
 
 plist_to_usbids() {
-  xsltproc - "$1" <<EOF
+  xsltproc --nonet - "$1" <<EOF
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
     <xsl:output method="text"/>
     <xsl:template match="/">
@@ -21,7 +21,7 @@ plist_add() {
   local plist="$1" usb_id="$2" description="$3"
   local vendor_id="${usb_id%:*}"
   local product_id="${usb_id#*:}"
-  xsltproc - "$plist" <<EOF
+  xsltproc --nonet - "$plist" <<EOF
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
   <xsl:output method="xml"/>
   <xsl:template match="@*|node()">
@@ -54,7 +54,6 @@ set -e
 test -n "$1" || {
   echo "This script will add an USB token with specific USB id to libccid token list" >&2
   echo "Usage: ${0##*/} <usb_id1> <description1> [<usb_id2> <description2>..]" >&2
-  echo "  usb_id is 'XXXX:YYYY', where XXXX and YYYY are USB vendor and device id hex values from lsusb" >&2
   exit 1
 }
 
