@@ -1,6 +1,6 @@
 #!/bin/sh
 
-prompt() { local x; echo -n "$1: ${2:+[$2] }" >&2; read x; echo "${x:-$2}"; }
+prompt() { local x m="$1" d="${2:-}"; echo -n "$m: ${d:+[$d] }" >&2; read -r x; echo "${x:-$d}"; }
 choose1() {
   case "$1" in
     *"
@@ -11,7 +11,23 @@ choose1() {
 }
 run() { (set -x; "$@"); }
 
-set -e
+set -eu
+
+while test -n "${1+set}";do
+case "$1" in
+  --[a-zA-Z]*=*) eval "${1#--}"; shift;;
+  *)
+    echo "Usage: ${0##*/} [<--env_var=value..>]" >&2
+    # shellcheck disable=2016
+    echo "  Recognized vars: $(grep -o '\${\w\+:[+=]' "$0" | cut -c3- | cut -f1 -d: | grep -v '^[0-9]' | sort -u | tr \\n ' ')" >&2
+    exit 1
+  ;;
+esac
+done
+
+: "${ssid:=}"
+: "${never_default:=}"
+
 run nmcli radio wifi on
 while test -z "$ssid";do
   run nmcli device wifi list
@@ -38,6 +54,7 @@ case " $security " in
   *) echo "WARNING: Unhandled security method: '$security'" >&2 ;;
 esac
 test -n "$never_default" || case "$(prompt "Use as default route? [Y/n]")" in Y*|y*|"") ;; *) never_default=1;; esac
+# shellcheck disable=2086
 run nmcli connection $op "$cname" \
   cloned-mac random \
   ssid "$ssid" \
@@ -59,7 +76,7 @@ test -z "$never_default" || {
   run grep -hv '^127\.' /etc/hosts "$HOME/.config/hosts" | grep '^[0-9]' || true
   while true; do
     echo -n "Destination to route via $gw: "
-    read dest || true
+    read -r dest || true
     test -n "$dest" || break
     if run sudo ip route add "$dest" via "$gw";then
       add_routes="${add_routes:+$add_routes,}$dest $gw"
