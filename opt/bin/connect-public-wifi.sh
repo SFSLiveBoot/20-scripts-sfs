@@ -46,7 +46,7 @@ else
   : "${security:=$(LANG=C.UTF-8 nmcli -m multiline -t -f bssid,security device wifi list | grep -A1 -Fx "BSSID:$bssid" | grep ^SECURITY: | sort -u | cut -f2 -d:)}"
 fi
 case " $security " in
-  *" WPA1 "*|*" WPA2 "*)
+  *" WPA1 "*|*" WPA2 "*|*" WPA3 "*)
   : "${key_mgmt:=wpa-psk}"
   : "${wpa_psk:=$(prompt "Pre-shared key")}"
   ;;
