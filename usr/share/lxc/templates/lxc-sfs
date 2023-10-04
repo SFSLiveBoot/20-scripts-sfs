@@ -1,1 +1,134 @@
-../../../../opt/LiveBootUtils/lxc-sfs-template.sh
+#!/bin/sh
+
+: "${lbu:=/opt/LiveBootUtils}"
+: "${net_link:=lxcbr0}"
+: "${primary_uid:=1000}"
+: "${sfs_list:=00-bookworm-gnome settings scripts home firefox google-chrome vivaldi jre}"
+
+set -eu
+
+usage() {
+    cat >&2 <<EOF
+Template options:
+$(awk '/ +-(-|[a-z]\|)[^[:space:]]+\)/{print $1}' "$0" | sed -e 's/^/  /' -e 's/)$//' | tail -n+7)
+EOF
+    return 0
+}
+
+options=$(getopt -o hp:n:l:i:g:d:s: -l help,rootfs:,path:,name:,mapped-uid:,mapped-gid:,busybox-path:,net-link:,net-addr:,net-gw:,net-dns:,sfs-list: -- "$@") || {
+    usage
+    exit 1
+}
+eval set -- "$options"
+
+while true;do
+  case "$1" in
+    -h|--help)        usage && exit 0;;
+    -n|--name)        name=$2; shift 2;;
+    -p|--path)        path=$2; shift 2;;
+    --rootfs)         rootfs=$2; shift 2;;
+    --mapped-uid)     LXC_MAPPED_UID=$2; shift 2;;
+    --mapped-gid)     LXC_MAPPED_GID=$2; shift 2;;
+    -u|--primary-uid) primary_uid=$2; shift 2;;
+    -l|--net-link)    net_link="$2"; shift 2;;
+    -i|--net-addr)    net_addr="$2"; shift 2;;
+    -g|--net-gw)      net_gw="$2"; shift 2;;
+    -d|--net-dns)     net_dns="${net_dns:+$net_dns }$2"; shift 2;;
+    -s|--sfs-list)    sfs_list="$2"; shift 2;;
+    --)               shift 1; break ;;
+    *)                break ;;
+  esac
+done
+
+user_home="$(getent passwd "$primary_uid" | cut -f6 -d:)"
+user_name="$(getent passwd "$primary_uid" | cut -f1 -d:)"
+
+rootfs_setup="$(mktemp -d /run/lxc/rootfs-${name}-XXX)/setup"
+chmod 755 "${rootfs_setup%/setup}"
+
+mkdir -p "$rootfs_setup/etc/systemd/user/" "$rootfs_setup/etc/systemd/system/console-getty.service.d/" "$rootfs_setup/etc/lxc/systemd-enabled/"
+
+cat >"$rootfs_setup/etc/systemd/system/console-getty.service.d/autologin.conf" <<EOF
+[Service]
+ExecStart=
+Environment=PULSE_SERVER=unix:/var/lib/host/pulse/native${DISPLAY:+ DISPLAY=$DISPLAY}
+ExecStart=-/sbin/agetty -a user -o '-p -- \\u' --noclear --keep-baud console 115200,38400,9600 xterm
+ExecStopPost=/sbin/poweroff
+EOF
+ln -s /lib/systemd/system/multi-user.target "$rootfs_setup/etc/systemd/system/default.target"
+touch "$rootfs_setup/etc/lxc/systemd-enabled/multi-user.target"
+
+cat >"$rootfs_setup/etc/motd" <<EOF
+
+Type 'exit' to stop container.
+
+EOF
+
+cat >"$rootfs_setup/etc/debian_chroot" <<EOF
+$name
+EOF
+
+test -n "${net_addr:+set}" ||
+    touch "$rootfs_setup/etc/lxc/systemd-enabled/NetworkManager.service"
+
+if test -n "${net_dns:-}";then
+  cat >"$rootfs_setup/etc/resolv.conf" <<EOF
+$(for dns in $net_dns; do echo "nameserver $dns";done)
+EOF
+else
+  touch "$rootfs_setup/etc/lxc/systemd-enabled/dnsmasq.service"
+fi
+
+mkdir -p "$rootfs_setup/etc/tmpfiles.d" "$rootfs_setup/etc/environment.d/"
+cat >"$rootfs_setup/etc/tmpfiles.d/link-x11.conf" <<EOF
+$(find /tmp/.X11-unix/ -name "X*" -type s -printf 'L %p - - - - /var/lib/host/X11/%f\n')
+L /run/udev - - - - /var/lib/host/udev
+L /dev/dri - - - - /var/lib/host/dev/dri
+EOF
+
+rootfs_parts=""
+for sfs in $("$lbu/lbu_cli.py" locate-sfs $sfs_list); do
+  sfs_mnt=""
+  for loop in $(grep -Fxl "$(readlink -f "$sfs")" /sys/block/loop*/loop/backing_file | cut -f4 -d/);do
+    sfs_mnt="$(grep " /dev/$loop " /proc/self/mountinfo | cut -f5 -d" ")"
+    test -z "$sfs_mnt" || break
+  done
+  test -n "$sfs_mnt" || {
+    sfs_stamp="$(hexdump -e '"%d"' -s 8 -n 4 "$sfs")"
+    echo "Error: mountpoint for $sfs not found, ex: mount -o loop,ro $sfs /.parts/$(basename "$sfs" .sfs).$sfs_stamp" >&2
+    exit 1
+  }
+  rootfs_parts="$sfs_mnt:$rootfs_parts"
+done
+
+devices_allow="c_1:8_r c_1:9_r c_1:5_r c_1:3_rw c_1:7_rw c_5:0_rw c_10:200_rw c_5:2_rw c_10:229_rw c_13:*_rw c_116:*_rw c_136:*_rw c_180:*_rw c_189:*_rw c_226:*_rw c_245:*_rw"
+
+mount_entries="/var/lib/apt/lists:var/lib/apt/lists /var/cache/apt/archives:var/cache/apt/archives ${user_home}/Downloads/${name}:home/user/Downloads /dev:var/lib/host/dev /tmp/.X11-unix:var/lib/host/X11 /run/udev:var/lib/host/udev /usr/local/bin:var/lib/host/bin /run/pcscd:var/lib/host/pcscd /run/user/${primary_uid}/pulse:var/lib/host/pulse"
+
+cat >"$path/config" <<EOF
+lxc.uts.name = ${name}
+
+lxc.hook.pre-start = mkdir -p "$rootfs_setup" "${rootfs_setup%/setup}/rw"
+lxc.hook.pre-start = install -d -m 0775 -o "${user_name}" -g 1000 "${user_home}/Downloads/${name}"
+lxc.hook.post-stop = env dldir="${user_home}/Downloads/${name}" sh -c 'rmdir "\${dldir}" || true'
+
+lxc.rootfs.path = "overlayfs:${rootfs_setup}:${rootfs_parts}${rootfs_setup%/setup}/rw"
+lxc.pty.max = 1024
+lxc.apparmor.profile = unconfined
+
+lxc.log.level = 1
+lxc.autodev = 1
+lxc.mount.auto = proc sys
+
+lxc.cap.keep = setuid sys_chroot ipc_lock dac_override kill audit_write setgid ipc_owner dac_read_search setpcap sys_nice chown fowner net_bind_service sys_resource net_admin sys_admin net_broadcast net_raw syslog lease
+lxc.cgroup.devices.deny = a
+$(for d in $devices_allow;do echo lxc.cgroup.devices.allow = $d | tr _ ' ';done)
+
+lxc.net.0.type = veth
+lxc.net.0.flags = up
+lxc.net.0.link = ${net_link}
+${net_addr:+lxc.net.0.ipv4.address = ${net_addr}}
+${net_gw:+lxc.net.0.ipv4.gateway = ${net_gw}}
+
+$(for entry in $mount_entries;do echo lxc.mount.entry = $entry none bind,create=dir 0 0 | sed 's/:/ /';done)
+EOF
