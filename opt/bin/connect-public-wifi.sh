@@ -35,7 +35,7 @@ while test -z "$ssid";do
   nmcli -t -f ssid device wifi list | grep -v '^--$' | sort -u | sed -e 's/^/  /'
   ssid="$(prompt "SSID (enter for rescan)")"
 done
-: "${cname:=$(prompt "Connection name" "$ssid")}"
+: "${cname:=$(prompt "Connection name" "$(echo "$ssid" | tr "[[:upper:]] " "[[:lower:]]_")")}"
 if nmcli -t -f connection.type connection show "$cname";then op="modify"; else op="add type wifi con-name"; fi
 echo "Signal Freq      BSSID              Security"
 LANG=C.UTF-8 nmcli -m multiline -t -f ssid,signal,freq,bssid,security device wifi list | grep -A5 -Fx "SSID:$ssid" | grep -e SIGNAL -e FREQ -e BSSID -e SECURITY | cut -f2- -d: | xargs -d'\n' printf " %d    %s  %s  %s\n" | sort -n
@@ -57,8 +57,20 @@ case " $security " in
   "  ") echo "WARNING: no link-level security possible" >&2;;
   *) echo "WARNING: Unhandled security method: '$security'" >&2 ;;
 esac
+
+test -n "${lxc+set}" || case "$(prompt "Create container for access? [Y/n]")" in Y*|y*|"") lxc="$cname";; esac
+
+test -z "${lxc:-}" || {
+  # create lxc for access
+  : "${lxc_name:=$(prompt "LXC container name" "$lxc")}"
+  test -n "${ignore_auto_dns+set}" || ignore_auto_dns=1
+  : "${rt_table:=$(prompt "Routing table" "1234")}"
+  : "${rt_rules:=$(prompt "Routing rules" "priority 1234 iif lxcbr0 lookup $rt_table")}"
+}
+
 test -n "$never_default" || case "$(prompt "Use as default route? [Y/n]")" in Y*|y*|"") ;; *) never_default=1;; esac
-# shellcheck disable=2086
+test -n "${ignore_auto_dns+set}" || ignore_auto_dns="${never_default:-}"
+
 run nmcli connection $op "$cname" \
   cloned-mac random \
   ssid "$ssid" \
@@ -66,14 +78,25 @@ run nmcli connection $op "$cname" \
   ipv4.dhcp-send-hostname false \
   autoconnect no \
   ${bssid:+wifi.bssid "$bssid"} \
-  ${never_default:+ipv4.never-default yes ipv4.ignore-auto-dns yes ipv6.never-default yes ipv6.ignore-auto-dns yes} \
+  ${never_default:+ipv4.never-default yes ipv6.never-default yes} \
+  ${ignore_auto_dns:+ipv4.ignore-auto-dns yes ipv6.ignore-auto-dns yes} \
   ${key_mgmt:+wifi-sec.key-mgmt $key_mgmt} ${wpa_psk:+wifi-sec.psk "$wpa_psk"} \
-  ${rt_table:+ipv4.route-table $rt_table}
+  ${rt_table:+ipv4.route-table $rt_table} \
+  ${rt_rules:+ipv4.routing-rules "$rt_rules"}
 run nmcli connection up "$cname"
 : "${iface:=$(choose1 "$(run nmcli -t -f GENERAL.DEVICES connection show "$cname" | cut -f2- -d:)" "WiFi interface")}"
 mac="$(run nmcli -t -f GENERAL.HWADDR device show "$iface" | cut -f2- -d:)"
 echo "Fixating parameters (mac=$mac)"
 run nmcli connection modify "$cname" cloned-mac "$mac"
+
+test -z "${lxc:-}" || test -d "/var/lib/lxc/$lxc_name" || {
+  test -n "${dns_srv+set}" ||
+    dns_srv="$(nmcli -t -f DHCP4.OPTION connection show "$cname" | grep :domain_name_servers | cut -f3- -d" ")"
+  run sudo lxc-create -n "$lxc_name" -t public-wifi -- ${dns_srv:+$(for srv in $dns_srv; do echo --net-dns "$dns_srv";done)}
+  run sudo lxc-start -F -n "$lxc_name"
+  echo "Run container again with: sudo lxc-start -F -n '$lxc_name'"
+  echo "OR delete container with: sudo lxc-destroy -n '$lxc_name'"
+}
 
 test -z "$never_default" || {
   gw="$(run nmcli -t -f DHCP4.OPTION connection show "$cname" | sed -n '/:routers = /{s/.* = //;p;q}')"
