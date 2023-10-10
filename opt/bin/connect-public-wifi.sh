@@ -92,7 +92,7 @@ run nmcli connection modify "$cname" cloned-mac "$mac"
 test -z "${lxc:-}" || test -d "/var/lib/lxc/$lxc_name" || {
   test -n "${dns_srv+set}" ||
     dns_srv="$(nmcli -t -f DHCP4.OPTION connection show "$cname" | grep :domain_name_servers | cut -f3- -d" ")"
-  run sudo lxc-create -n "$lxc_name" -t public-wifi -- ${dns_srv:+$(for srv in $dns_srv; do echo --net-dns "$dns_srv";done)}
+  run sudo lxc-create -n "$lxc_name" -t public-wifi -- ${dns_srv:+$(for srv in $dns_srv; do echo --net-dns "$srv";done)}
   run sudo lxc-start -F -n "$lxc_name"
   echo "Run container again with: sudo lxc-start -F -n '$lxc_name'"
   echo "OR delete container with: sudo lxc-destroy -n '$lxc_name'"
