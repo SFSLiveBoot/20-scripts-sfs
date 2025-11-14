@@ -3,7 +3,7 @@
 : "${lbu:=/opt/LiveBootUtils}"
 : "${net_link:=lxcbr0}"
 : "${primary_uid:=1000}"
-: "${sfs_list:=00-bookworm-gnome settings scripts home firefox google-chrome vivaldi jre}"
+: "${sfs_list:=00-*-gnome settings scripts home firefox google-chrome vivaldi jre}"
 
 set -eu
 
