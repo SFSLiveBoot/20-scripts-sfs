@@ -76,6 +76,7 @@ run nmcli connection $op "$cname" \
   ssid "$ssid" \
   ifname "*" \
   ipv4.dhcp-send-hostname false \
+  ipv6.dhcp-send-hostname false \
   autoconnect no \
   ${bssid:+wifi.bssid "$bssid"} \
   ${never_default:+ipv4.never-default yes ipv6.never-default yes} \
