@@ -68,6 +68,7 @@ mkdir -p "$rootfs_setup/etc/systemd/system/lxc-container.target.wants"
 ln -s ../console-getty.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
 ln -s ../NetworkManager.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
 ln -s ../dnsmasq.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
+ln -s ../generate-locale.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
 
 mkdir -p "$rootfs_setup/usr/share/google-chrome/extensions"
 cat >"$rootfs_setup/usr/share/google-chrome/extensions/ddkjiahejlhfcafbddmgiahcphecmpfh.json" <<EOF
@@ -79,7 +80,7 @@ EOF
 
 cat >"$rootfs_setup/etc/motd" <<EOF
 
-Type 'exit' to stop container.
+Type 'sudo poweroff' to stop container.
 
 EOF
 
@@ -101,7 +102,8 @@ timestamp=1
 
 [ipv4]
 method=auto
-${net_dns:+dns=$net_dns}
+${net_dns:+dns=$(for dns in $net_dns;do echo -n "$dns;";done)}
+${net_dns:+ignore-auto-dns=true}
 
 [ipv6]
 addr-gen-mode=default
