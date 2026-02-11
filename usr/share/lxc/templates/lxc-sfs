@@ -51,12 +51,31 @@ mkdir -p "$rootfs_setup/etc/systemd/user/" "$rootfs_setup/etc/systemd/system/con
 cat >"$rootfs_setup/etc/systemd/system/console-getty.service.d/autologin.conf" <<EOF
 [Service]
 ExecStart=
+ExecStartPre=rm -f /var/run/nologin
+ExecStartPre=sed '/^[^#].*pam_deny/s/^/#/' -i /etc/pam.d/common-account /etc/pam.d/common-auth /etc/pam.d/common-auth /etc/pam.d/common-session
 Environment=PULSE_SERVER=unix:/var/lib/host/pulse/native${DISPLAY:+ DISPLAY=$DISPLAY}
-ExecStart=-/sbin/agetty -a user -o '-p -- \\u' --noclear --keep-baud console 115200,38400,9600 xterm
-ExecStopPost=/sbin/poweroff
+ExecStart=-/sbin/agetty -a user -o '-p -- \\\\u' --noclear --keep-baud console 115200,38400,9600 xterm
+#ExecStopPost=/sbin/poweroff
 EOF
-ln -s /lib/systemd/system/multi-user.target "$rootfs_setup/etc/systemd/system/default.target"
-touch "$rootfs_setup/etc/lxc/systemd-enabled/multi-user.target"
+
+cat >"$rootfs_setup/etc/systemd/system/lxc-container.target" <<EOF
+[Unit]
+Requires=basic.target
+EOF
+ln -s lxc-container.target "$rootfs_setup/etc/systemd/system/default.target"
+
+mkdir -p "$rootfs_setup/etc/systemd/system/lxc-container.target.wants"
+ln -s ../console-getty.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
+ln -s ../NetworkManager.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
+ln -s ../dnsmasq.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
+
+mkdir -p "$rootfs_setup/usr/share/google-chrome/extensions"
+cat >"$rootfs_setup/usr/share/google-chrome/extensions/ddkjiahejlhfcafbddmgiahcphecmpfh.json" <<EOF
+{
+  "external_update_url": "https://clients2.google.com/service/update2/crx"
+}
+EOF
+
 
 cat >"$rootfs_setup/etc/motd" <<EOF
 
@@ -68,22 +87,54 @@ cat >"$rootfs_setup/etc/debian_chroot" <<EOF
 $name
 EOF
 
+mkdir -p "$rootfs_setup/etc/NetworkManager/system-connections"
+cat >"$rootfs_setup/etc/NetworkManager/system-connections/eth0.nmconnection" <<EOF
+[connection]
+id=eth0
+uuid=20a146ed-0abd-47e5-a4fc-961a60cc5e0e
+type=ethernet
+autoconnect=yes
+interface-name=eth0
+timestamp=1
+
+[ethernet]
+
+[ipv4]
+method=auto
+${net_dns:+dns=$net_dns}
+
+[ipv6]
+addr-gen-mode=default
+method=disabled
+
+[proxy]
+
+EOF
+chmod 600 "$rootfs_setup/etc/NetworkManager/system-connections/eth0.nmconnection" 
+
+mkdir -p "$rootfs_setup/etc/default"
+cat >"$rootfs_setup/etc/locale.conf" <<EOF
+LANG=${LANG:-C.UTF-8}
+EOF
+
 test -n "${net_addr:+set}" ||
     touch "$rootfs_setup/etc/lxc/systemd-enabled/NetworkManager.service"
 
-if test -n "${net_dns:-}";then
-  cat >"$rootfs_setup/etc/resolv.conf" <<EOF
-$(for dns in $net_dns; do echo "nameserver $dns";done)
+mkdir -p "$rootfs_setup/etc/systemd/system-preset"
+cat >"$rootfs_setup/etc/systemd/system-preset/60-lxc-sfs.preset" <<EOF
+disable *
 EOF
-else
-  touch "$rootfs_setup/etc/lxc/systemd-enabled/dnsmasq.service"
-fi
 
-mkdir -p "$rootfs_setup/etc/tmpfiles.d" "$rootfs_setup/etc/environment.d/"
+mkdir -p "$rootfs_setup/etc/tmpfiles.d"
 cat >"$rootfs_setup/etc/tmpfiles.d/link-x11.conf" <<EOF
 $(find /tmp/.X11-unix/ -name "X*" -type s -printf 'L %p - - - - /var/lib/host/X11/%f\n')
 L /run/udev - - - - /var/lib/host/udev
 L /dev/dri - - - - /var/lib/host/dev/dri
+EOF
+
+mkdir -p "$rootfs_setup/etc/sudoers.d/"
+cat >"$rootfs_setup/etc/sudoers.d/no-passwd" <<EOF
+user ALL = NOPASSWD: ALL
 EOF
 
 rootfs_parts=""
@@ -125,10 +176,11 @@ lxc.cgroup.devices.deny = a
 $(for d in $devices_allow;do echo lxc.cgroup.devices.allow = $d | tr _ ' ';done)
 
 lxc.net.0.type = veth
-lxc.net.0.flags = up
 lxc.net.0.link = ${net_link}
+${net_addr:+lxc.net.0.flags = up}
 ${net_addr:+lxc.net.0.ipv4.address = ${net_addr}}
 ${net_gw:+lxc.net.0.ipv4.gateway = ${net_gw}}
 
 $(for entry in $mount_entries;do echo lxc.mount.entry = $entry none bind,create=dir 0 0 | sed 's/:/ /';done)
+${XAUTHORITY:+lxc.mount.entry = $XAUTHORITY var/lib/host/Xauthority none bind,create=file 0 0}
 EOF
