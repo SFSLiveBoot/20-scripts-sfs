@@ -15,7 +15,7 @@ EOF
     return 0
 }
 
-options=$(getopt -o hp:n:l:i:g:d:s: -l help,rootfs:,path:,name:,mapped-uid:,mapped-gid:,busybox-path:,net-link:,net-addr:,net-gw:,net-dns:,sfs-list: -- "$@") || {
+options=$(getopt -o hp:n:l:i:g:d:s:m: -l help,rootfs:,path:,name:,mapped-uid:,mapped-gid:,busybox-path:,net-link:,net-addr:,net-gw:,net-dns:,sfs-list:,mount: -- "$@") || {
     usage
     exit 1
 }
@@ -35,6 +35,7 @@ while true;do
     -g|--net-gw)      net_gw="$2"; shift 2;;
     -d|--net-dns)     net_dns="${net_dns:+$net_dns }$2"; shift 2;;
     -s|--sfs-list)    sfs_list="$2"; shift 2;;
+    -m|--mount)       mount_entries="$2"; shift 2;;
     --)               shift 1; break ;;
     *)                break ;;
   esac
@@ -68,7 +69,6 @@ mkdir -p "$rootfs_setup/etc/systemd/system/lxc-container.target.wants"
 ln -s ../console-getty.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
 ln -s ../NetworkManager.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
 ln -s ../dnsmasq.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
-ln -s ../generate-locale.service "$rootfs_setup/etc/systemd/system/lxc-container.target.wants/"
 
 mkdir -p "$rootfs_setup/usr/share/google-chrome/extensions"
 cat >"$rootfs_setup/usr/share/google-chrome/extensions/ddkjiahejlhfcafbddmgiahcphecmpfh.json" <<EOF
@@ -156,7 +156,7 @@ done
 
 devices_allow="c_1:8_r c_1:9_r c_1:5_r c_1:3_rw c_1:7_rw c_5:0_rw c_10:200_rw c_5:2_rw c_10:229_rw c_13:*_rw c_116:*_rw c_136:*_rw c_180:*_rw c_189:*_rw c_226:*_rw c_245:*_rw"
 
-mount_entries="/var/lib/apt/lists:var/lib/apt/lists /var/cache/apt/archives:var/cache/apt/archives ${user_home}/Downloads/${name}:home/user/Downloads /dev:var/lib/host/dev /tmp/.X11-unix:var/lib/host/X11 /run/udev:var/lib/host/udev /usr/local/bin:var/lib/host/bin /run/pcscd:var/lib/host/pcscd /run/user/${primary_uid}/pulse:var/lib/host/pulse"
+mount_entries="/var/lib/apt/lists:var/lib/apt/lists /var/cache/apt/archives:var/cache/apt/archives ${user_home}/Downloads/${name}:home/user/Downloads /dev:var/lib/host/dev /tmp/.X11-unix:var/lib/host/X11 /run/udev:var/lib/host/udev /usr/local/bin:var/lib/host/bin /run/pcscd:var/lib/host/pcscd /run/user/${primary_uid}/pulse:var/lib/host/pulse${mount_entries:+ $mount_entries}"
 
 cat >"$path/config" <<EOF
 lxc.uts.name = ${name}
