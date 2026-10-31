@@ -54,9 +54,9 @@ cat >"$rootfs_setup/etc/systemd/system/console-getty.service.d/autologin.conf" <
 ExecStart=
 ExecStartPre=rm -f /var/run/nologin
 ExecStartPre=sed '/^[^#].*pam_deny/s/^/#/' -i /etc/pam.d/common-account /etc/pam.d/common-auth /etc/pam.d/common-auth /etc/pam.d/common-session
-Environment=PULSE_SERVER=unix:/var/lib/host/pulse/native${DISPLAY:+ DISPLAY=$DISPLAY}
-ExecStart=-/sbin/agetty -a user -o '-p -- \\\\u' --noclear --keep-baud console 115200,38400,9600 xterm
-#ExecStopPost=/sbin/poweroff
+Environment=PULSE_SERVER=unix:/var/lib/host/pulse/native${DISPLAY:+ DISPLAY=$DISPLAY XDG_SESSION_TYPE=x11 GDK_BACKEND=x11 QT_X11_NO_MITSHM=1 GSK_RENDERER=cairo}
+ExecStart=-/sbin/agetty -a user -o '-p -f -- \\\\u' --noclear --keep-baud console 115200,38400,9600 xterm
+ExecStopPost=/sbin/poweroff
 EOF
 
 cat >"$rootfs_setup/etc/systemd/system/lxc-container.target" <<EOF
@@ -80,7 +80,7 @@ EOF
 
 cat >"$rootfs_setup/etc/motd" <<EOF
 
-Type 'sudo poweroff' to stop container.
+Type 'exit' to stop the container.
 
 EOF
 
@@ -148,15 +148,19 @@ for sfs in $("$lbu/lbu_cli.py" locate-sfs $sfs_list); do
   done
   test -n "$sfs_mnt" || {
     sfs_stamp="$(hexdump -e '"%d"' -s 8 -n 4 "$sfs")"
-    echo "Error: mountpoint for $sfs not found, ex: mount -o loop,ro $sfs /.parts/$(basename "$sfs" .sfs).$sfs_stamp" >&2
-    exit 1
+    sfs_mnt="/.parts/$(basename "$sfs" .sfs).$sfs_stamp"
+    mountpoint -q "$sfs_mnt" || {
+      echo -n "Mounting $sfs to $sfs_mnt" >&2
+      mkdir -p "$sfs_mnt"
+      mount -o loop,ro "$sfs" "$sfs_mnt"
+    }
   }
   rootfs_parts="$sfs_mnt:$rootfs_parts"
 done
 
 devices_allow="c_1:8_r c_1:9_r c_1:5_r c_1:3_rw c_1:7_rw c_5:0_rw c_10:200_rw c_5:2_rw c_10:229_rw c_13:*_rw c_116:*_rw c_136:*_rw c_180:*_rw c_189:*_rw c_226:*_rw c_245:*_rw"
 
-mount_entries="/var/lib/apt/lists:var/lib/apt/lists /var/cache/apt/archives:var/cache/apt/archives ${user_home}/Downloads/${name}:home/user/Downloads /dev:var/lib/host/dev /tmp/.X11-unix:var/lib/host/X11 /run/udev:var/lib/host/udev /usr/local/bin:var/lib/host/bin /run/pcscd:var/lib/host/pcscd /run/user/${primary_uid}/pulse:var/lib/host/pulse${mount_entries:+ $mount_entries}"
+mount_entries="/var/lib/apt/lists:var/lib/apt/lists /var/cache/apt/archives:var/cache/apt/archives ${user_home}/Downloads/${name}:home/user/Downloads /dev:var/lib/host/dev:ro /tmp/.X11-unix:var/lib/host/X11:ro /run/udev:var/lib/host/udev:ro /usr/local/bin:var/lib/host/bin:ro /run/pcscd:var/lib/host/pcscd:ro /run/user/${primary_uid}/pulse:var/lib/host/pulse:ro${mount_entries:+ $mount_entries}"
 
 cat >"$path/config" <<EOF
 lxc.uts.name = ${name}
@@ -183,6 +187,6 @@ ${net_addr:+lxc.net.0.flags = up}
 ${net_addr:+lxc.net.0.ipv4.address = ${net_addr}}
 ${net_gw:+lxc.net.0.ipv4.gateway = ${net_gw}}
 
-$(for entry in $mount_entries;do echo lxc.mount.entry = $entry none bind,create=dir 0 0 | sed 's/:/ /';done)
+$(for entry in $mount_entries;do if test "$entry" = "${entry%:ro}"; then ro=""; else ro=",ro";fi;echo lxc.mount.entry = ${entry%:ro} none bind${ro},create=dir 0 0 | sed 's/:/ /';done)
 ${XAUTHORITY:+lxc.mount.entry = $XAUTHORITY var/lib/host/Xauthority none bind,create=file 0 0}
 EOF
