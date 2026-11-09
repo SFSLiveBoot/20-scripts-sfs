@@ -132,6 +132,7 @@ cat >"$rootfs_setup/etc/tmpfiles.d/link-x11.conf" <<EOF
 $(find /tmp/.X11-unix/ -name "X*" -type s -printf 'L %p - - - - /var/lib/host/X11/%f\n')
 L /run/udev - - - - /var/lib/host/udev
 L /dev/dri - - - - /var/lib/host/dev/dri
+L /dev/kvm - - - - /var/lib/host/dev/kvm
 EOF
 
 mkdir -p "$rootfs_setup/etc/sudoers.d/"
@@ -158,7 +159,7 @@ for sfs in $("$lbu/lbu_cli.py" locate-sfs $sfs_list); do
   rootfs_parts="$sfs_mnt:$rootfs_parts"
 done
 
-devices_allow="c_1:8_r c_1:9_r c_1:5_r c_1:3_rw c_1:7_rw c_5:0_rw c_10:200_rw c_5:2_rw c_10:229_rw c_13:*_rw c_116:*_rw c_136:*_rw c_180:*_rw c_189:*_rw c_226:*_rw c_245:*_rw"
+devices_allow="c_1:8_r c_1:9_r c_1:5_r c_1:3_rw c_1:7_rw c_5:0_rw c_10:200_rw c_5:2_rw c_10:229_rw c_13:*_rw c_116:*_rw c_136:*_rw c_180:*_rw c_189:*_rw c_226:*_rw c_245:*_rw c_10:232_rw"
 
 mount_entries="/var/lib/apt/lists:var/lib/apt/lists /var/cache/apt/archives:var/cache/apt/archives ${user_home}/Downloads/${name}:home/user/Downloads /dev:var/lib/host/dev:ro /tmp/.X11-unix:var/lib/host/X11:ro /run/udev:var/lib/host/udev:ro /usr/local/bin:var/lib/host/bin:ro /run/pcscd:var/lib/host/pcscd:ro /run/user/${primary_uid}/pulse:var/lib/host/pulse:ro${mount_entries:+ $mount_entries}"
 
